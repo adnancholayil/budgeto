@@ -4,11 +4,13 @@ import SoundButton from '../components/SoundButton';
 import { useTheme } from '../theme/ThemeContext';
 import { ColorPresets } from '../theme/colors';
 import Background from '../components/Background';
-import { X, Check, Plus, Trash2, Edit2 } from 'lucide-react-native';
+import { X, Check, Plus, Trash2, Edit2, Calendar, ChevronLeft, ChevronRight } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { dbService } from '../database/db';
 import ModalAlert from '../components/ModalAlert';
 import { CATEGORY_ICONS } from '../utils/iconLibrary';
+import { format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, eachDayOfInterval, isSameMonth, isSameDay, addMonths, subMonths, isToday } from 'date-fns';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 
 const AddTransaction = ({ navigation, route }: any) => {
@@ -28,6 +30,12 @@ const AddTransaction = ({ navigation, route }: any) => {
     const [newCatName, setNewCatName] = useState('');
     const [newCatIcon, setNewCatIcon] = useState('tag');
     const [showIconPicker, setShowIconPicker] = useState(false);
+
+    const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+    const [showDatePicker, setShowDatePicker] = useState(false);
+    const [currentViewDate, setCurrentViewDate] = useState<Date>(new Date());
+    const [tempSelectedDate, setTempSelectedDate] = useState<Date>(new Date());
+    const [showMonthYearSelector, setShowMonthYearSelector] = useState(false);
 
     const [alertConfig, setAlertConfig] = useState<{ visible: boolean; title: string; message: string; type: any; onConfirm?: () => void }>({
         visible: false,
@@ -56,6 +64,9 @@ const AddTransaction = ({ navigation, route }: any) => {
             setAmount(editTx.amount.toString());
             setNote(editTx.note || '');
             setType(editTx.type);
+            setSelectedDate(new Date(editTx.date));
+        } else {
+            setSelectedDate(new Date());
         }
     }, [editTx]);
 
@@ -70,15 +81,134 @@ const AddTransaction = ({ navigation, route }: any) => {
         }
     };
 
-    const loadCats = async () => {
+    const loadCats = async (selectedCatId?: number) => {
         const cats = await dbService.getCategories();
         setCategories(cats);
-        if (editTx) {
+        if (editTx && !selectedCatId) {
             const currentCat = cats.find((c: any) => c.id === editTx.category_id);
             if (currentCat) setCategory(currentCat);
+        } else if (selectedCatId) {
+            const currentCat = cats.find((c: any) => c.id === selectedCatId);
+            if (currentCat) setCategory(currentCat);
         } else if (!category && cats.length > 0) {
+            try {
+                const defaultCatIdStr = await AsyncStorage.getItem('default_category_id');
+                if (defaultCatIdStr) {
+                    const defaultCatId = parseInt(defaultCatIdStr, 10);
+                    const defaultCat = cats.find((c: any) => c.id === defaultCatId);
+                    if (defaultCat) {
+                        setCategory(defaultCat);
+                        return;
+                    }
+                }
+            } catch (e) {
+                console.error("Error reading default category", e);
+            }
             setCategory(cats[0]);
         }
+    };
+
+    const openDatePicker = () => {
+        setTempSelectedDate(selectedDate);
+        setCurrentViewDate(selectedDate);
+        setShowMonthYearSelector(false);
+        setShowDatePicker(true);
+    };
+
+    const nextMonth = () => setCurrentViewDate(addMonths(currentViewDate, 1));
+    const prevMonth = () => setCurrentViewDate(subMonths(currentViewDate, 1));
+    const nextYear = () => setCurrentViewDate(addMonths(currentViewDate, 12));
+    const prevYear = () => setCurrentViewDate(subMonths(currentViewDate, 12));
+
+    const MONTHS = [
+        'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+        'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+    ];
+
+    const renderMonthGrid = () => {
+        const currentMonthIndex = currentViewDate.getMonth();
+        return MONTHS.map((monthName, index) => {
+            const isSelectedMonth = currentMonthIndex === index;
+            return (
+                <Pressable
+                    key={index}
+                    style={[
+                        styles.monthGridCell,
+                        { borderColor: colors.outline },
+                        isSelectedMonth && { backgroundColor: colors.primaryContainer, borderColor: colors.primary }
+                    ]}
+                    onPress={() => {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                        const newDate = new Date(currentViewDate);
+                        newDate.setMonth(index);
+                        setCurrentViewDate(newDate);
+                        setShowMonthYearSelector(false);
+                    }}
+                >
+                    <Text style={[
+                        styles.monthGridCellText,
+                        { color: isSelectedMonth ? colors.primary : colors.onSurface },
+                        isSelectedMonth && { fontWeight: 'bold' }
+                    ]}>
+                        {monthName}
+                    </Text>
+                </Pressable>
+            );
+        });
+    };
+
+    const handleDayPress = (day: Date) => {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+        setTempSelectedDate(day);
+    };
+
+    const selectToday = () => {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+        const today = new Date();
+        setTempSelectedDate(today);
+        setCurrentViewDate(today);
+    };
+
+    const confirmDateSelection = () => {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy).catch(() => {});
+        setSelectedDate(tempSelectedDate);
+        setShowDatePicker(false);
+    };
+
+    const renderCalendarDays = () => {
+        const monthStart = startOfMonth(currentViewDate);
+        const monthEnd = endOfMonth(monthStart);
+        const startDate = startOfWeek(monthStart);
+        const endDate = endOfWeek(monthEnd);
+
+        const calendarDays = eachDayOfInterval({ start: startDate, end: endDate });
+        
+        return calendarDays.map((day, idx) => {
+            const isSel = isSameDay(day, tempSelectedDate);
+            const isTodayDay = isToday(day);
+            const isCurrentMonth = isSameMonth(day, monthStart);
+            
+            return (
+                <Pressable
+                    key={idx}
+                    style={[
+                        styles.calendarCell,
+                        isSel && { backgroundColor: colors.primary },
+                        !isSel && isTodayDay && { borderWidth: 1, borderColor: colors.primary }
+                    ]}
+                    onPress={() => handleDayPress(day)}
+                >
+                    <Text style={[
+                        styles.calendarCellText,
+                        { color: isCurrentMonth ? colors.onSurface : colors.onSurfaceVariant },
+                        isSel && { color: colors.onPrimary, fontWeight: 'bold' },
+                        !isSel && isTodayDay && { color: colors.primary, fontWeight: 'bold' }
+                    ]}>
+                        {format(day, 'd')}
+                    </Text>
+                </Pressable>
+            );
+        });
     };
 
     const handleSave = async () => {
@@ -101,7 +231,7 @@ const AddTransaction = ({ navigation, route }: any) => {
                 category_id: category.id,
                 account_id: selectedAccount?.id || null,
                 note: note.trim(),
-                date: editTx ? editTx.date : new Date().toISOString()
+                date: selectedDate.toISOString()
             };
 
             if (editTx) {
@@ -124,6 +254,7 @@ const AddTransaction = ({ navigation, route }: any) => {
     const handleSaveCategory = async () => {
         if (!newCatName.trim()) return;
 
+        let savedCat = null;
         if (isEditingCat && editingCatId) {
             const currentCat = categories.find(c => c.id === editingCatId);
             await dbService.updateCategory(editingCatId, {
@@ -132,10 +263,17 @@ const AddTransaction = ({ navigation, route }: any) => {
                 color: currentCat?.color || '#6750A4',
                 budget: currentCat?.budget || 0
             });
+            savedCat = {
+                id: editingCatId,
+                name: newCatName.trim(),
+                icon: newCatIcon,
+                color: currentCat?.color || '#6750A4',
+                budget: currentCat?.budget || 0
+            };
         } else {
             const colors_list = ['#6750A4', '#625B71', '#7D5260', '#146C2E', '#B3261E', '#D0BCFF'];
             const randomColor = colors_list[Math.floor(Math.random() * colors_list.length)];
-            await dbService.addCategory({
+            savedCat = await dbService.addCategory({
                 name: newCatName.trim(),
                 icon: newCatIcon,
                 color: randomColor,
@@ -144,7 +282,11 @@ const AddTransaction = ({ navigation, route }: any) => {
         }
 
         resetCatModal();
-        loadCats();
+        if (savedCat) {
+            loadCats(savedCat.id);
+        } else {
+            loadCats();
+        }
     };
 
     const handleDeleteCategory = (id: number) => {
@@ -157,6 +299,14 @@ const AddTransaction = ({ navigation, route }: any) => {
                 await dbService.deleteCategory(id);
                 setAlertConfig(prev => ({ ...prev, visible: false }));
                 if (category?.id === id) setCategory(null);
+                try {
+                    const defaultCatIdStr = await AsyncStorage.getItem('default_category_id');
+                    if (defaultCatIdStr && parseInt(defaultCatIdStr, 10) === id) {
+                        await AsyncStorage.removeItem('default_category_id');
+                    }
+                } catch (e) {
+                    console.error("Error clearing default category", e);
+                }
                 loadCats();
             }
         });
@@ -311,6 +461,16 @@ const AddTransaction = ({ navigation, route }: any) => {
                         </View>
 
                         <View style={styles.section}>
+                            <Text style={[styles.label, { color: colors.primary }]}>Date</Text>
+                            <SoundButton onPress={openDatePicker} style={[styles.dateButton, { borderColor: colors.outline }]}>
+                                <Calendar color={colors.primary} size={18} />
+                                <Text style={[styles.dateText, { color: colors.onSurface }]}>
+                                    {format(selectedDate, 'MMMM d, yyyy (EEEE)')}
+                                </Text>
+                            </SoundButton>
+                        </View>
+
+                        <View style={styles.section}>
                             <Text style={[styles.label, { color: colors.primary }]}>Note</Text>
                             <TextInput
                                 style={[styles.noteInput, { borderBottomColor: colors.outline, color: colors.onSurface }]}
@@ -402,6 +562,83 @@ const AddTransaction = ({ navigation, route }: any) => {
                             </View>
                         </View>
                     </Modal>
+                    {/* Date Picker Modal */}
+                    <Modal visible={showDatePicker} transparent animationType="slide">
+                        <View style={styles.modalOverlay}>
+                            <View style={[styles.datePickerCard, { backgroundColor: colors.surface }]}>
+                                <View style={styles.modalHeaderRow}>
+                                    <Text style={[styles.modalTitle, { color: colors.onSurface }]}>Select Date</Text>
+                                    <SoundButton onPress={() => setShowDatePicker(false)}>
+                                        <X color={colors.onSurface} size={24} />
+                                    </SoundButton>
+                                </View>
+
+                                <View style={styles.calendarMonthHeader}>
+                                    <SoundButton onPress={showMonthYearSelector ? prevYear : prevMonth}>
+                                        <ChevronLeft color={colors.primary} size={24} />
+                                    </SoundButton>
+                                    <Pressable 
+                                        onPress={() => {
+                                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                                            setShowMonthYearSelector(!showMonthYearSelector);
+                                        }}
+                                        style={[styles.calendarHeaderPressable, { backgroundColor: colors.primaryContainer }]}
+                                    >
+                                        <Text style={[styles.calendarMonthText, { color: colors.primary }]}>
+                                            {showMonthYearSelector ? `${format(currentViewDate, 'yyyy')} ▴` : `${format(currentViewDate, 'MMMM yyyy')} ▾`}
+                                        </Text>
+                                    </Pressable>
+                                    <SoundButton onPress={showMonthYearSelector ? nextYear : nextMonth}>
+                                        <ChevronRight color={colors.primary} size={24} />
+                                    </SoundButton>
+                                </View>
+
+                                {showMonthYearSelector ? (
+                                    <View style={styles.monthSelectorContainer}>
+                                        {renderMonthGrid()}
+                                    </View>
+                                ) : (
+                                    <>
+                                        <View style={styles.calendarWeekdaysRow}>
+                                            {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((day, idx) => (
+                                                <Text key={idx} style={[styles.calendarWeekdayLabel, { color: colors.onSurfaceVariant }]}>
+                                                    {day}
+                                                </Text>
+                                            ))}
+                                        </View>
+
+                                        <View style={styles.calendarGrid}>
+                                            {renderCalendarDays()}
+                                        </View>
+                                    </>
+                                )}
+
+                                <View style={styles.datePickerFooter}>
+                                    <SoundButton 
+                                        onPress={selectToday}
+                                        style={[styles.footerBtn, { backgroundColor: colors.primaryContainer }]}
+                                    >
+                                        <Text style={{ color: colors.primary, fontWeight: 'bold' }}>Today</Text>
+                                    </SoundButton>
+                                    <View style={{ flexDirection: 'row', gap: 8 }}>
+                                        <SoundButton 
+                                            onPress={() => setShowDatePicker(false)}
+                                            style={styles.modalActionBtn}
+                                        >
+                                            <Text style={{ color: colors.onSurfaceVariant, fontWeight: '600' }}>Cancel</Text>
+                                        </SoundButton>
+                                        <SoundButton 
+                                            onPress={confirmDateSelection}
+                                            style={[styles.modalActionBtn, { backgroundColor: colors.primary, borderRadius: 8 }]}
+                                        >
+                                            <Text style={{ color: colors.onPrimary, fontWeight: 'bold' }}>Select</Text>
+                                        </SoundButton>
+                                    </View>
+                                </View>
+                            </View>
+                        </View>
+                    </Modal>
+
                     <ModalAlert
                         visible={alertConfig.visible}
                         title={alertConfig.title}
@@ -456,7 +693,113 @@ const styles = StyleSheet.create({
     iconPickerCard: { borderRadius: 28, padding: 24, width: '100%', maxHeight: '80%', alignSelf: 'center', elevation: 12 },
     iconGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, justifyContent: 'center' },
     iconBox: { width: 48, height: 48, borderRadius: 12, justifyContent: 'center', alignItems: 'center' },
-    modalClose: { marginTop: 24, paddingTop: 16, alignItems: 'center' }
+    modalClose: { marginTop: 24, paddingTop: 16, alignItems: 'center' },
+    dateButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: 16,
+        paddingVertical: 14,
+        borderRadius: 16,
+        borderWidth: 1,
+        gap: 12,
+        marginTop: 4,
+    },
+    dateText: {
+        fontSize: 16,
+        fontWeight: '500'
+    },
+    datePickerCard: {
+        borderRadius: 28,
+        padding: 20,
+        width: '100%',
+        maxWidth: 340,
+        alignSelf: 'center',
+        elevation: 12,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 6 },
+        shadowOpacity: 0.15,
+        shadowRadius: 10,
+    },
+    calendarMonthHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 16,
+        paddingHorizontal: 8,
+    },
+    calendarMonthText: {
+        fontSize: 16,
+        fontWeight: '700',
+    },
+    calendarWeekdaysRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        marginBottom: 8,
+    },
+    calendarWeekdayLabel: {
+        width: '14.28%',
+        textAlign: 'center',
+        fontSize: 12,
+        fontWeight: '700',
+        opacity: 0.8,
+    },
+    calendarGrid: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        width: '100%',
+        marginBottom: 16,
+    },
+    calendarCell: {
+        width: '14.28%',
+        height: 38,
+        justifyContent: 'center',
+        alignItems: 'center',
+        borderRadius: 19,
+        marginVertical: 2,
+    },
+    calendarCellText: {
+        fontSize: 14,
+        fontWeight: '500',
+    },
+    datePickerFooter: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        borderTopWidth: 1,
+        borderTopColor: 'rgba(0,0,0,0.05)',
+        paddingTop: 12,
+        marginTop: 4,
+    },
+    footerBtn: {
+        paddingHorizontal: 16,
+        paddingVertical: 10,
+        borderRadius: 12,
+    },
+    calendarHeaderPressable: {
+        paddingHorizontal: 12,
+        paddingVertical: 6,
+        borderRadius: 12,
+    },
+    monthSelectorContainer: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        justifyContent: 'space-between',
+        width: '100%',
+        paddingVertical: 10,
+    },
+    monthGridCell: {
+        width: '31%',
+        height: 48,
+        justifyContent: 'center',
+        alignItems: 'center',
+        borderRadius: 12,
+        marginVertical: 6,
+        borderWidth: 1,
+    },
+    monthGridCellText: {
+        fontSize: 15,
+        fontWeight: '500',
+    },
 });
 
 export default AddTransaction;

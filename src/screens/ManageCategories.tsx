@@ -3,11 +3,12 @@ import { StyleSheet, View, Text, ScrollView, TextInput, Modal, FlatList, Dimensi
 import SoundButton from '../components/SoundButton';
 import { useTheme } from '../theme/ThemeContext';
 import Background from '../components/Background';
-import { ChevronLeft, Plus, Trash2, Edit2, Check, X, Palette } from 'lucide-react-native';
+import { ChevronLeft, Plus, Trash2, Edit2, Check, X, Palette, Star } from 'lucide-react-native';
 import { CATEGORY_ICONS } from '../utils/iconLibrary';
 import { dbService } from '../database/db';
 import * as Haptics from 'expo-haptics';
 import ModalAlert from '../components/ModalAlert';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const { width } = Dimensions.get('window');
 
@@ -29,6 +30,7 @@ const ManageCategories = ({ navigation }: any) => {
     const [budget, setBudget] = useState('');
     const [selectedIcon, setSelectedIcon] = useState('tag');
     const [showIconPicker, setShowIconPicker] = useState(false);
+    const [defaultCategoryId, setDefaultCategoryId] = useState<number | null>(null);
 
     const [alertConfig, setAlertConfig] = useState<{ visible: boolean; title: string; message: string; type: any; onConfirm?: () => void }>({
         visible: false,
@@ -37,11 +39,36 @@ const ManageCategories = ({ navigation }: any) => {
         type: 'info'
     });
 
-
-
     useEffect(() => {
         loadCategories();
+        loadDefaultCategory();
     }, []);
+
+    const loadDefaultCategory = async () => {
+        try {
+            const val = await AsyncStorage.getItem('default_category_id');
+            if (val) {
+                setDefaultCategoryId(parseInt(val, 10));
+            }
+        } catch (e) {
+            console.error("Error loading default category", e);
+        }
+    };
+
+    const toggleDefaultCategory = async (id: number) => {
+        try {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+            if (defaultCategoryId === id) {
+                await AsyncStorage.removeItem('default_category_id');
+                setDefaultCategoryId(null);
+            } else {
+                await AsyncStorage.setItem('default_category_id', id.toString());
+                setDefaultCategoryId(id);
+            }
+        } catch (e) {
+            console.error("Error saving default category", e);
+        }
+    };
 
     const loadCategories = async () => {
         const cats = await dbService.getCategories();
@@ -74,6 +101,10 @@ const ManageCategories = ({ navigation }: any) => {
             type: 'confirm',
             onConfirm: async () => {
                 await dbService.deleteCategory(id);
+                if (defaultCategoryId === id) {
+                    await AsyncStorage.removeItem('default_category_id');
+                    setDefaultCategoryId(null);
+                }
                 loadCategories();
                 setAlertConfig({ ...alertConfig, visible: false });
             }
@@ -132,6 +163,7 @@ const ManageCategories = ({ navigation }: any) => {
                 <View style={styles.grid}>
                     {categories.map((cat) => {
                         const Icon = CATEGORY_ICONS[cat.icon] || CATEGORY_ICONS.tag;
+                        const isDefault = defaultCategoryId === cat.id;
                         return (
                             <SoundButton
                                 key={cat.id}
@@ -144,6 +176,9 @@ const ManageCategories = ({ navigation }: any) => {
                                 </View>
                                 <Text style={[styles.catName, { color: colors.onSurface }]} numberOfLines={1}>{cat.name}</Text>
                                 <View style={styles.cardActions}>
+                                    <SoundButton onPress={() => toggleDefaultCategory(cat.id)} style={styles.actionIcon}>
+                                        <Star size={16} color={isDefault ? '#F59E0B' : colors.onSurfaceVariant} fill={isDefault ? '#F59E0B' : 'transparent'} />
+                                    </SoundButton>
                                     <SoundButton onPress={() => openEdit(cat)} style={styles.actionIcon}>
                                         <Edit2 size={16} color={colors.onSurfaceVariant} />
                                     </SoundButton>
