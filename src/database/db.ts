@@ -7,6 +7,15 @@ class DatabaseService {
 
   async init() {
     if (this.isWeb) {
+      // One-time migration: clear any previously seeded mock data for existing visitors
+      if (!localStorage.getItem('antigravity_mock_cleared_v2')) {
+        localStorage.removeItem('antigravity_categories');
+        localStorage.removeItem('antigravity_transactions');
+        localStorage.removeItem('antigravity_debts');
+        localStorage.removeItem('antigravity_accounts');
+        localStorage.setItem('antigravity_mock_cleared_v2', 'true');
+      }
+
       if (!localStorage.getItem('antigravity_categories')) {
         this.seedWeb();
       }
@@ -73,6 +82,7 @@ class DatabaseService {
   }
 
   private seedWeb() {
+    // Seed only default categories — no sample transactions, accounts, or debts
     const cats = [
       { id: 1, name: 'Salary', icon: 'briefcase', color: '#10B981', budget: 0 },
       { id: 2, name: 'Food & Dining', icon: 'utensils', color: '#6366F1', budget: 600 },
@@ -80,28 +90,18 @@ class DatabaseService {
       { id: 4, name: 'Shopping', icon: 'shopping-bag', color: '#F472B6', budget: 400 },
       { id: 5, name: 'Bills & Util', icon: 'zap', color: '#F59E0B', budget: 300 }
     ];
-    const txs = [
-      { id: 101, type: 'income', amount: 4500, category_id: 1, note: 'Freelance Payout', date: new Date().toISOString() },
-      { id: 102, type: 'expense', amount: 32.50, category_id: 2, note: 'Starbucks Coffee', date: new Date().toISOString() },
-      { id: 103, type: 'expense', amount: 15.00, category_id: 3, note: 'Bus Pass', date: new Date().toISOString() }
-    ];
-    const debts = [
-      { id: 1, person: 'Alex Smith', amount: 50.0, type: 'owed_to_me', note: 'Lunch', date: new Date().toISOString(), status: 'pending' },
-      { id: 2, person: 'Rental Agency', amount: 1200.0, type: 'i_owe', note: 'Security Deposit', date: new Date().toISOString(), status: 'pending' }
-    ];
-    const accounts = [
-      { id: 1, name: 'Main Wallet', type: 'cash', balance: 1000.0, currency: 'INR', icon: 'wallet' },
-      { id: 2, name: 'HDFC Bank', type: 'debit', balance: 50000.0, currency: 'INR', icon: 'landmark' }
-    ];
     localStorage.setItem('antigravity_categories', JSON.stringify(cats));
-    localStorage.setItem('antigravity_transactions', JSON.stringify(txs));
-    localStorage.setItem('antigravity_debts', JSON.stringify(debts));
-    localStorage.setItem('antigravity_accounts', JSON.stringify(accounts));
+    localStorage.setItem('antigravity_transactions', JSON.stringify([]));
+    localStorage.setItem('antigravity_debts', JSON.stringify([]));
+    localStorage.setItem('antigravity_accounts', JSON.stringify([]));
   }
 
   async wipeData() {
     if (this.isWeb) {
+      // Preserve the migration flag so wipe doesn't re-trigger on next load
+      const migrationFlag = localStorage.getItem('antigravity_mock_cleared_v2');
       localStorage.clear();
+      if (migrationFlag) localStorage.setItem('antigravity_mock_cleared_v2', migrationFlag);
       this.seedWeb();
       return;
     }
